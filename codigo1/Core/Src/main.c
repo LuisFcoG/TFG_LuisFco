@@ -45,33 +45,26 @@
 /* Private variables ---------------------------------------------------------*/
  RTC_HandleTypeDef hrtc;
 
-UART_HandleTypeDef huart2;
-
 /* USER CODE BEGIN PV */
-
-//Variables comunicación UART
-#define TAM_BUF 200
-uint8_t tx_buff[TAM_BUF]; //Buffer de transmisión de datos
-uint8_t rx_buff[TAM_BUF]; //Buffer de recibir datos
-char *eptr; //Puntero para separación cadena
-
-//Variables para guardado en memoria RAM
-#define BKPSRAM_BASE 0x20017000 //Dirección del primer byte donde se va a almacenar la información
-#define OFFSET 8                //Tamaño de un double (8 bytes)
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
 static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
 volatile int first_movement = 0;
 volatile int pos0 = 0;
 volatile int pos1 = 0;
 volatile int pos2 = 0;
-
+volatile int state = 0;
+volatile int counter = 0;
+volatile int f1 = 0;
+volatile int f2 = 0;
+volatile int f3 = 0;
+volatile int f4 = 0;
+volatile int sweep = 0;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -79,18 +72,6 @@ volatile int pos2 = 0;
 
 //Variables motor
 static volatile uint16_t gLastError;
-
-//Variables efemérides
-struct constantes c;                         //constantes utilizadas en los cálculos de las efemérides
-struct tiempo t = {20,07,2022,20,31,50};      //estructura que contiene la fecha y hora
-struct localizacion local = {40.45,-3.73,0}; //valores de la ubicación del seguidor
-struct ephemeris efemerides;                 //ángulos más importantes del cálculo de las efemérides
-struct posSol pos;                           //coordenadas cartesianas de la posición del Sol
-struct posSol pos_final;                     //coordenadas cartesianas de la posición del Sol teniendo en cuenta seguidor desviado
-float wid;                                   //�?ngulo óptimo de inclinación para módulos monofaciales
-float prev_wid;                              //�?ngulo wid cálculo anterior
-volatile float widc = 0;                     //�?ngulo óptimo de inclinación para módulos bifaciales
-
 
 //Variables RTC
 volatile RTC_TimeTypeDef sTime; //Inicialización hora
@@ -123,21 +104,6 @@ L6474_Init_t gL6474InitParams =
      L6474_ALARM_EN_SW_TURN_ON       |
      L6474_ALARM_EN_WRONG_NPERF_CMD)    /// Alarm (ALARM_EN register).
 };
-
-//Variables estados funcionamiento
-volatile uint8_t inicio = 0;    //Variable usada al arrancar el programa para calibrar el motor
-volatile uint8_t modo = 0;      //modo = 0: llevar el seguidor a la posición horizontal, modo = 1: seguidor moviéndose según efemérides
-volatile uint8_t izquierda = 0; //final de carrera izquierdo pulsado
-volatile uint8_t derecha = 0;   //final de carrera derecho pulsado
-
-volatile uint8_t usart_tx = 0;  //Botón de transmisión de datos pulsado
-volatile uint8_t usart_rx = 0;  //Botón de recibir datos pulsado
-
-volatile float posicion;        //variable con la posición del motor
-volatile float ang_eq;          //Conversión del ángulo de grados a pasos
-
-volatile int amanecer = 0;      //Variable para calibrado en el amanecer
-volatile int hardstop = 0;      //Variable para parada seguidor si se pulsan dos veces el FC de la izquierda
 
 //Funciones
 //Funciones control Shield
@@ -215,18 +181,38 @@ void MyFlagInterruptHandler(void)
 //Callback de las interrupciones
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
-	if(GPIO_Pin == GPIO_PIN_2){ //Final de carrera de la izquierda
-		//BSP_MotorControl_HardStop(0); //Parada brusca motor
-		modo = 0;                     //Indicación modo de ir a posición seguridad
-		izquierda = 1;                //Final de carrera pulsado izquierdo
+	if(GPIO_Pin == GPIO_PIN_2){ //Calibration EoS
+		//if(sweep == 0){
+			sweep++;
+		//}
+		//else{
+		//	sweep = 0;
+		//}
+		/*
+		//Motor HardStop
+		f2 = 1;
+		first_movement = 0;
+		BSP_MotorControl_HardStop(0);
+		BSP_MotorControl_HardStop(1);
+		BSP_MotorControl_HardStop(2);
+		state = 2;//Sweeping
+		*/
 	}
-	else if(GPIO_Pin == GPIO_PIN_1){ //Final de carrera derecho
-		inicio = 1;                   //Calibración motor inicial finalizada
-		//BSP_MotorControl_HardStop(0); //Parada brusca motor
-		modo = 0;                     //Indicación modo de ir a posición de seguridad
-		derecha = 1;                  //Final de carrera pulsado derecho
+
+	else if(GPIO_Pin == GPIO_PIN_1){ //Security EoS
+		/*
+		//Motor HardStop
+		f1 = 1;
+		BSP_MotorControl_HardStop(0);
+		BSP_MotorControl_HardStop(1);
+		BSP_MotorControl_HardStop(2);
+		state = 3;//Security
+		*/
+		f1++;
+
 	}
-	else if (GPIO_Pin == BSP_MOTOR_CONTROL_BOARD_FLAG_PIN) //Interrupción si la Shield detecta algo mal
+
+	else if (GPIO_Pin == BSP_MOTOR_CONTROL_BOARD_FLAG_PIN) //Shield interrupt handler
 	{
 		BSP_MotorControl_FlagInterruptHandler();
 	}
@@ -262,7 +248,6 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART2_UART_Init();
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
@@ -283,48 +268,54 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
 	  if (first_movement == 0){//
-		  	  pos0 = BSP_MotorControl_GetPosition(0);
-		  	  pos1 = BSP_MotorControl_GetPosition(1);
-		  	  pos2 = BSP_MotorControl_GetPosition(2);
-	 		  BSP_MotorControl_SetHome(0,pos0);//Set the step 0 in this position
-	 		  BSP_MotorControl_SetHome(1,pos1);
-	 		  BSP_MotorControl_SetHome(2,pos2);
-	 		  BSP_MotorControl_SetMaxSpeed(0,600);//Set the speed limits
-	 		  BSP_MotorControl_SetMaxSpeed(1,600);
-	 		  BSP_MotorControl_SetMaxSpeed(2,600);
-	 		  BSP_MotorControl_SetMinSpeed(0,600);
-	 		  BSP_MotorControl_SetMinSpeed(1,600);
-	 		  BSP_MotorControl_SetMinSpeed(2,600);
-	 		  BSP_MotorControl_Move(0, FORWARD, 7500);//Va hacia 45º aprox
-	 		  BSP_MotorControl_Move(1, FORWARD, 7500);
-	 		  BSP_MotorControl_Move(2, FORWARD, 7500);
-	 		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	 		  BSP_MotorControl_WaitWhileActive(1);
-	 		  BSP_MotorControl_WaitWhileActive(2);
-	 		  BSP_MotorControl_Move(0, BACKWARD, 15000);//Va hacia -45º aprox
-	 		  BSP_MotorControl_Move(1, BACKWARD, 15000);
-	 		  BSP_MotorControl_Move(2, BACKWARD, 15000);
-	 		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	 		  BSP_MotorControl_WaitWhileActive(1);
-	 		  BSP_MotorControl_WaitWhileActive(2);
-	 		  first_movement = 1;
-	 	  }
-	 	  BSP_MotorControl_Move(0, FORWARD, 15000);//Va hacia 45º aprox
-	 	  BSP_MotorControl_Move(1, FORWARD, 15000);
-	 	  BSP_MotorControl_Move(2, FORWARD, 15000);
-	 	  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	 	  BSP_MotorControl_WaitWhileActive(1);
-	 	  BSP_MotorControl_WaitWhileActive(2);
-	 	  BSP_MotorControl_Move(0, BACKWARD, 15000);//Va hacia -45º aprox
-	 	  BSP_MotorControl_Move(1, BACKWARD, 15000);
-	 	  BSP_MotorControl_Move(2, BACKWARD, 15000);
-	 	  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	 	  BSP_MotorControl_WaitWhileActive(1);
-	 	  BSP_MotorControl_WaitWhileActive(2);
+	  		  	  pos0 = BSP_MotorControl_GetPosition(0);
+	  		  	  pos1 = BSP_MotorControl_GetPosition(1);
+	  		  	  pos2 = BSP_MotorControl_GetPosition(2);
+	  	 		  BSP_MotorControl_SetHome(0,pos0);//Set the step 0 in this position
+	  	 		  BSP_MotorControl_SetHome(1,pos1);
+	  	 		  BSP_MotorControl_SetHome(2,pos2);
+	  	 		  BSP_MotorControl_SetMaxSpeed(0,600);//Set the speed limits
+	  	 		  BSP_MotorControl_SetMaxSpeed(1,600);
+	  	 		  BSP_MotorControl_SetMaxSpeed(2,600);
+	  	 		  BSP_MotorControl_SetMinSpeed(0,600);
+	  	 		  BSP_MotorControl_SetMinSpeed(1,600);
+	  	 		  BSP_MotorControl_SetMinSpeed(2,600);
+	  	 		  BSP_MotorControl_Move(0, FORWARD, 7500);//Va hacia 45º aprox
+	  	 		  BSP_MotorControl_Move(1, FORWARD, 7500);
+	  	 		  BSP_MotorControl_Move(2, FORWARD, 7500);
+	  	 		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+	  	 		  BSP_MotorControl_WaitWhileActive(1);
+	  	 		  BSP_MotorControl_WaitWhileActive(2);
+	  	 		  /*
+	  	 		  BSP_MotorControl_Move(0, BACKWARD, 15000);//Va hacia -45º aprox
+	  	 		  BSP_MotorControl_Move(1, BACKWARD, 15000);
+	  	 		  BSP_MotorControl_Move(2, BACKWARD, 15000);
+	  	 		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+	  	 		  BSP_MotorControl_WaitWhileActive(1);
+	  	 		  BSP_MotorControl_WaitWhileActive(2);
+	  	 		  */
+	  			  BSP_MotorControl_SoftStop(0);//Decelerate until stopping
+	  			  BSP_MotorControl_SoftStop(1);
+	  			  BSP_MotorControl_SoftStop(2);
 
+	  	 		  first_movement = 1;
+	  	 	  }
+	  	  if (sweep != 0){
+	  	 	  BSP_MotorControl_Move(0, BACKWARD, 15000);//Va hacia 45º aprox
+	  	 	  BSP_MotorControl_Move(1, BACKWARD, 15000);
+	  	 	  BSP_MotorControl_Move(2, BACKWARD, 15000);
+	  	 	  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+	  	 	  BSP_MotorControl_WaitWhileActive(1);
+	  	 	  BSP_MotorControl_WaitWhileActive(2);
+	  	 	  BSP_MotorControl_Move(0, FORWARD, 15000);//Va hacia -45º aprox
+	  	 	  BSP_MotorControl_Move(1, FORWARD, 15000);
+	  	 	  BSP_MotorControl_Move(2, FORWARD, 15000);
+	  	 	  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+	  	 	  BSP_MotorControl_WaitWhileActive(1);
+	  	 	  BSP_MotorControl_WaitWhileActive(2);
+	  	  }
+    /* USER CODE BEGIN 3 */
 
   }
   /* USER CODE END 3 */
@@ -441,39 +432,6 @@ static void MX_RTC_Init(void)
 }
 
 /**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -483,9 +441,9 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11|GPIO_PIN_12, GPIO_PIN_RESET);
@@ -496,10 +454,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB1 PB2 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_2;
+  /*Configure GPIO pin : PB1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB2 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA11 PA12 */
