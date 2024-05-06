@@ -182,34 +182,26 @@ void MyFlagInterruptHandler(void)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 	if(GPIO_Pin == GPIO_PIN_2){ //Calibration EoS
-		//if(sweep == 0){
-			sweep++;
-		//}
-		//else{
-		//	sweep = 0;
-		//}
-		/*
-		//Motor HardStop
-		f2 = 1;
-		first_movement = 0;
+		sweep++;
+		if(state == 1){
 		BSP_MotorControl_HardStop(0);
 		BSP_MotorControl_HardStop(1);
 		BSP_MotorControl_HardStop(2);
 		state = 2;//Sweeping
-		*/
+		}
+
 	}
 
 	else if(GPIO_Pin == GPIO_PIN_1){ //Security EoS
-		/*
 		//Motor HardStop
-		f1 = 1;
+		f1++;
+		if(f1 > 1000){
 		BSP_MotorControl_HardStop(0);
 		BSP_MotorControl_HardStop(1);
 		BSP_MotorControl_HardStop(2);
 		state = 3;//Security
-		*/
-		f1++;
-
+		f1 = 0;
+		}
 	}
 
 	else if (GPIO_Pin == BSP_MOTOR_CONTROL_BOARD_FLAG_PIN) //Shield interrupt handler
@@ -260,7 +252,8 @@ int main(void)
   BSP_MotorControl_AttachErrorHandler(ErrorHandler_Shield);                   //Asociar función control errores
 
   //Inicialización programa la primera vez que se carga el programa
-
+state = 1;
+first_movement = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -268,7 +261,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	  if (first_movement == 0){//
+	  if (state == 1){
 	  		  	  pos0 = BSP_MotorControl_GetPosition(0);
 	  		  	  pos1 = BSP_MotorControl_GetPosition(1);
 	  		  	  pos2 = BSP_MotorControl_GetPosition(2);
@@ -281,40 +274,44 @@ int main(void)
 	  	 		  BSP_MotorControl_SetMinSpeed(0,600);
 	  	 		  BSP_MotorControl_SetMinSpeed(1,600);
 	  	 		  BSP_MotorControl_SetMinSpeed(2,600);
-	  	 		  BSP_MotorControl_Move(0, FORWARD, 7500);//Va hacia 45º aprox
-	  	 		  BSP_MotorControl_Move(1, FORWARD, 7500);
-	  	 		  BSP_MotorControl_Move(2, FORWARD, 7500);
-	  	 		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	 		  BSP_MotorControl_WaitWhileActive(1);
-	  	 		  BSP_MotorControl_WaitWhileActive(2);
-	  	 		  /*
-	  	 		  BSP_MotorControl_Move(0, BACKWARD, 15000);//Va hacia -45º aprox
-	  	 		  BSP_MotorControl_Move(1, BACKWARD, 15000);
-	  	 		  BSP_MotorControl_Move(2, BACKWARD, 15000);
-	  	 		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	 		  BSP_MotorControl_WaitWhileActive(1);
-	  	 		  BSP_MotorControl_WaitWhileActive(2);
-	  	 		  */
-	  			  BSP_MotorControl_SoftStop(0);//Decelerate until stopping
-	  			  BSP_MotorControl_SoftStop(1);
-	  			  BSP_MotorControl_SoftStop(2);
 
-	  	 		  first_movement = 1;
+				  BSP_MotorControl_Move(0, FORWARD, 9500);//Va hacia más de 55
+	  	 		  BSP_MotorControl_Move(1, FORWARD, 9500);
+	  	 		  BSP_MotorControl_Move(2, FORWARD, 9500);
+				  /*
+	  	 		  BSP_MotorControl_Run(0, FORWARD);//Va hacia 55.1º
+	  	 		  BSP_MotorControl_Run(1, FORWARD);
+	  	 		  BSP_MotorControl_Run(2, FORWARD);
+	  	 		  */
 	  	 	  }
-	  	  if (sweep != 0){
-	  	 	  BSP_MotorControl_Move(0, BACKWARD, 15000);//Va hacia 45º aprox
-	  	 	  BSP_MotorControl_Move(1, BACKWARD, 15000);
-	  	 	  BSP_MotorControl_Move(2, BACKWARD, 15000);
-	  	 	  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	 	  BSP_MotorControl_WaitWhileActive(1);
-	  	 	  BSP_MotorControl_WaitWhileActive(2);
-	  	 	  BSP_MotorControl_Move(0, FORWARD, 15000);//Va hacia -45º aprox
-	  	 	  BSP_MotorControl_Move(1, FORWARD, 15000);
-	  	 	  BSP_MotorControl_Move(2, FORWARD, 15000);
-	  	 	  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	 	  BSP_MotorControl_WaitWhileActive(1);
-	  	 	  BSP_MotorControl_WaitWhileActive(2);
+	  else if (state == 2){
+			if(first_movement == 0){
+
+	  	 		  BSP_MotorControl_Move(0, BACKWARD, 861);//Va hacia 50º
+	  	 		  BSP_MotorControl_Move(1, BACKWARD, 861);
+	  	 		  BSP_MotorControl_Move(2, BACKWARD, 861);
+	  	 		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+	  	 		  BSP_MotorControl_WaitWhileActive(1);
+	  	 		  BSP_MotorControl_WaitWhileActive(2);
+				  first_movement = 1;
+			}
+	  	 	BSP_MotorControl_Move(0, BACKWARD, 10000);//Va hacia -50º aprox
+	  	 	BSP_MotorControl_Move(1, BACKWARD, 10000);
+	  	 	BSP_MotorControl_Move(2, BACKWARD, 10000);
+	  	 	BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+	  	 	BSP_MotorControl_WaitWhileActive(1);
+	  	 	BSP_MotorControl_WaitWhileActive(2);
+	  	 	BSP_MotorControl_Move(0, FORWARD, 10000);//Va hacia +50º aprox
+	  	 	BSP_MotorControl_Move(1, FORWARD, 10000);
+	  	 	BSP_MotorControl_Move(2, FORWARD, 10000);
+	  	 	BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+	  	 	BSP_MotorControl_WaitWhileActive(1);
+	  	 	BSP_MotorControl_WaitWhileActive(2);
 	  	  }
+	  else if (state == 3){ //Security
+		//Wait to manual check the model, mandatory reset
+		//Place all the trackers horizontally
+	  }
     /* USER CODE BEGIN 3 */
 
   }
@@ -457,7 +454,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : PB1 */
   GPIO_InitStruct.Pin = GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB2 */
