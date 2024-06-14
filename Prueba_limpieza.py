@@ -6,33 +6,49 @@ Created on Tue Apr  2 09:55:45 2024
 """
 
 import csv
-import tkinter as tk
-from tkinter import filedialog
+import sys
 
-def eliminar_primeras_filas(archivo_entrada, archivo_salida):
+def limpieza_csv(archivo_entrada, archivo_salida):
     with open(archivo_entrada, 'r', newline='') as archivo_entrada:
         lector_csv = csv.reader(archivo_entrada)
-        datos = list(lector_csv)[38:]  # Excluir las primeras 38 filas
+        datos = list(lector_csv)[40:]  # Excluir las primeras 40 filas
+    # Excluir la segunda fila restante
+    if len(datos) > 1:
+        datos.pop(1)
     
     with open(archivo_salida, 'w', newline='') as archivo_salida:
         escritor_csv = csv.writer(archivo_salida)
-        escritor_csv.writerows(datos)
-    print("Las primeras 38 filas se han eliminado del archivo CSV exitosamente.")
+        for i, fila in enumerate(datos):
+            fila_limpia = [
+                celda.replace("L", "").replace("+", "").replace(" ", "") if index != 1 else celda.replace("L", "").replace("+", "")
+                for index, celda in enumerate(fila)
+            ]
+            if i > 0:  # A partir de la segunda fila
+                fila_limpia = fila_limpia[:-3]  # Eliminar las últimas tres columnas
+            escritor_csv.writerow(fila_limpia)
 
-def seleccionar_archivo():
-    archivo_entrada = filedialog.askopenfilename(title="Seleccione el archivo CSV de entrada")
-    if archivo_entrada:
-        archivo_salida = filedialog.asksaveasfilename(title="Seleccione el archivo CSV de salida", defaultextension=".csv")
-        if archivo_salida:
-            eliminar_primeras_filas(archivo_entrada, archivo_salida)
+    print("Se han eliminado las primeras 38 filas, los caracteres 'L', espacios, '+' y las tres últimas columnas del archivo CSV.")
 
-# Configuración de la ventana Tkinter
-root = tk.Tk()
-root.title("Eliminar primeras filas de archivo CSV")
+def main():
+    if len(sys.argv) != 3:
+        print("Uso: python clear_csv.py <input_file> <output_file>")
+        sys.exit(1)
+    archivo_entrada = sys.argv[1]
+    archivo_salida = sys.argv[2]
+    limpieza_csv(archivo_entrada, archivo_salida)
+    print(f"El archivo limpio se ha guardado en: {archivo_salida}")
 
-# Botón para seleccionar archivo
-boton_seleccionar = tk.Button(root, text="Seleccionar archivo", command=seleccionar_archivo)
-boton_seleccionar.pack(pady=20)
+if __name__ == "__main__":
+    main()
 
-root.mainloop()
+
+
+
+
+
+
+
+
+
+
 
