@@ -72,6 +72,12 @@ volatile int aux = 1;
 volatile float A0 = 0;
 volatile float A1 = 0;
 volatile float A2 = 0;
+volatile int step = 169;
+volatile int sweep = 99;//100 grados es barrido nominal
+volatile int half_sweep = 50;
+volatile int init_pos = 10;
+uint32_t minute = 60000;
+uint32_t sweep_frec = 0;
 
 uint32_t Vb1;
 uint32_t Vc0;
@@ -201,67 +207,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	}
 }
 
-//Callback Timer
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  // Check which timer triggered this callback
-  //if (htim == &htim5)
-  {
-	  /*
-    if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1)==0){
-    	f1++;
-    }
-    if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2)==0){
-        f2++;
-    }
-    */
-	  /*
-	  HAL_ADC_Start(&hadc1);
-
-	  HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-
-	  Vb1 = HAL_ADC_GetValue(&hadc1);
-
-	  HAL_ADC_Start(&hadc1);
-
-	  HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-
-	  Vc0 = HAL_ADC_GetValue(&hadc1);
-
-	  HAL_ADC_Stop(&hadc1);
-	  */
-	  /*
-	 if (Vcount < 50){
-		 VpromS = (VpromS*Vcount + Vb1)/(Vcount + 1);
-		 VpromC = (VpromC*Vcount + Vc0)/(Vcount + 1);
-		 Vcount++;
-	 }
-	 if (Vcount == 50){
-		 if (VpromS > 2500){
-			 FCS = 1;
-		 }
-		 if (VpromS < 1000){
-		 	 FCS = 0;
-		 }
-		 if (VpromC > 2500){
-			 FCC = 1;
-		 }
-		 if (VpromC < 1000){
-		 	 FCC = 0;
-		 }
-		 Vcount = 0;
-	 }
-	 */
-  }
-}
-
 void HAL_ADC_ConvCpltCallback (ADC_HandleTypeDef * hadc){
 
 	if (hadc->Instance == ADC1){
 		ADC_VAL[0]=ADC_BUFF[0];
 		ADC_VAL[1]=ADC_BUFF[1];
-		//Vb1=ADC_BUFF[0];
-		//Vc0=ADC_BUFF[1];
   	  	Vb1 = ADC_VAL[0];
   	  	Vc0 = ADC_VAL[1];
 	}
@@ -284,6 +234,8 @@ void HAL_ADC_ConvCpltCallback (ADC_HandleTypeDef * hadc){
 	  	  	  	  	 pos0 = BSP_MotorControl_GetPosition(0);
 	  	  	  	  	 pos1 = BSP_MotorControl_GetPosition(1);
 	  	  	  	  	 pos2 = BSP_MotorControl_GetPosition(2);
+	  	  	  	  	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, SET);
+	  	  	  	  	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, SET);
 	  	  	  	  	 while(1){
 
 	  	  	  	  	 }
@@ -301,7 +253,6 @@ void HAL_ADC_ConvCpltCallback (ADC_HandleTypeDef * hadc){
 			 Vcount = 0;
 		 }
 }
-
 
 /* USER CODE END 0 */
 
@@ -348,14 +299,16 @@ int main(void)
 
   //Inicialización driver
   BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 3);         //Se establece número de motores a controlar
-  BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);//Parámetros iniciales del motor
+  BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams); //Parámetros iniciales del motor
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);
   BSP_MotorControl_AttachFlagInterrupt(MyFlagInterruptHandler);               //Asociar controlador de interrupciones
   BSP_MotorControl_AttachErrorHandler(ErrorHandler_Shield);                   //Asociar función control errores
 
   //Inicialización programa la primera vez que se carga el programa
-state = 1;
+  state = 1; //Initial state, 1->Normal, 4->Accuracy calibration
+  sweep_frec = 5; //Delay between sweeps in minutes
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -363,174 +316,140 @@ state = 1;
   while (1)
   {
 	  /* USER CODE END WHILE */
-	  	  	  	  if (state == 1){
-	  	  	  		  	  	  	  	  	  first_movement = 0;
-	  	  	  	  	  	  		  	  	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
-	  	  	  	  	  	  		  	  	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
-	  	  	  	  	  	  	  		  	  pos0 = BSP_MotorControl_GetPosition(0);
-	  	  	  	  	  	  	  		  	  pos1 = BSP_MotorControl_GetPosition(1);
-	  	  	  	  	  	  	  		  	  pos2 = BSP_MotorControl_GetPosition(2);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetHome(0,pos0);//Set the step 0 in this position
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetHome(1,pos1);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetHome(2,pos2);
-	  	  	  	  	  	  	  	 		  HAL_Delay(1000);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetMaxSpeed(0,566);//Set the speed limits
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetMaxSpeed(1,566);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetMaxSpeed(2,566);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetMinSpeed(0,566);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetMinSpeed(1,566);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_SetMinSpeed(2,566);
+	  if (state == 1){
+		  first_movement = 0;
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
+		  pos0 = BSP_MotorControl_GetPosition(0);
+		  pos1 = BSP_MotorControl_GetPosition(1);
+		  pos2 = BSP_MotorControl_GetPosition(2);
+		  BSP_MotorControl_SetHome(0,pos0);//Set the step 0 in this position
+		  BSP_MotorControl_SetHome(1,pos1);
+		  BSP_MotorControl_SetHome(2,pos2);
+		  HAL_Delay(1000);
+		  BSP_MotorControl_SetMaxSpeed(0,566);//Set the speed limits
+		  BSP_MotorControl_SetMaxSpeed(1,566);
+		  BSP_MotorControl_SetMaxSpeed(2,566);
+		  BSP_MotorControl_SetMinSpeed(0,566);
+		  BSP_MotorControl_SetMinSpeed(1,566);
+		  BSP_MotorControl_SetMinSpeed(2,566);
+		  BSP_MotorControl_Run(0, BACKWARD);//Va hacia FCC
+		  BSP_MotorControl_Run(1, BACKWARD);
+		  BSP_MotorControl_Run(2, BACKWARD);
+	  }
+	  else if (state == 2){
+		  if(first_movement == 0){
+			  BSP_MotorControl_Move(0, FORWARD, step*init_pos);//Va al punto inicial de barrido, -50º
+			  BSP_MotorControl_Move(1, FORWARD, step*init_pos);
+			  BSP_MotorControl_Move(2, FORWARD, step*init_pos);
+			  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+			  BSP_MotorControl_WaitWhileActive(1);
+			  BSP_MotorControl_WaitWhileActive(2);
+			  first_movement = 1;
+		  }
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, SET);
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
+		  BSP_MotorControl_Move(0, FORWARD, step*sweep);//Va hacia -50º aprox
+		  BSP_MotorControl_Move(1, FORWARD, step*sweep);
+		  BSP_MotorControl_Move(2, FORWARD, step*sweep);
+		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+		  BSP_MotorControl_WaitWhileActive(1);
+		  BSP_MotorControl_WaitWhileActive(2);
 
-	  	  	  	  	  	  				  //BSP_MotorControl_Move(0, FORWARD, 9500);//Va hacia más de 55
-	  	  	  	  	  	  	  	 		  //BSP_MotorControl_Move(1, FORWARD, 9500);
-	  	  	  	  	  	  	  	 		  //BSP_MotorControl_Move(2, FORWARD, 9500);
-
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_Run(0, BACKWARD);//Va hacia 55.1º
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_Run(1, BACKWARD);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_Run(2, BACKWARD);
-
-
-	  	  	  	  	  	  	  	 	  }
-	  	  	  	  	  	  	  else if (state == 2){
-	  	  	  	  	  	  			if(first_movement == 0){
-	  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(0);//Decelerate until stopping
-	  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(1);
-	  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(2);
-			  	  	  	  	  	  		pos0 = BSP_MotorControl_GetPosition(0);
-			  	  	  	  	  	  		pos1 = BSP_MotorControl_GetPosition(1);
-			  	  	  	  	  	  		pos2 = BSP_MotorControl_GetPosition(2);
-	  	  	  	  	  	  	  	 		HAL_Delay(20000);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_Move(0, FORWARD, 1690);//Va hacia 50º
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_Move(1, FORWARD, 1690);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_Move(2, FORWARD, 1690);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_WaitWhileActive(1);
-	  	  	  	  	  	  	  	 		  BSP_MotorControl_WaitWhileActive(2);
-	    	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(0);//Decelerate until stopping
-	    	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(1);
-	    	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(2);
-	  		  	  	  	  	  	  		pos0 = BSP_MotorControl_GetPosition(0);
-	  		  	  	  	  	  	  		pos1 = BSP_MotorControl_GetPosition(1);
-	  		  	  	  	  	  	  		pos2 = BSP_MotorControl_GetPosition(2);
-	    	  	  	  	  	  	  	 		HAL_Delay(30000);
-	  	  	  	  	  	  	  	  	 	first_movement = 1;
-	  	  	  	  	  	  			}
-	  	  	  	  	  	  	  	 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
-	  	  	  	  	  	  		    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, SET);
-	  	  	  	  	  	  	  	 	BSP_MotorControl_Move(0, FORWARD, 16900);//Va hacia -50º aprox
-	  	  	  	  	  	  	  	 	BSP_MotorControl_Move(1, FORWARD, 16900);
-	  	  	  	  	  	  	  	 	BSP_MotorControl_Move(2, FORWARD, 16900);
-	  	  	  	  	  	  	  	 	BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	  	  	  	  	  	  	 	BSP_MotorControl_WaitWhileActive(1);
-	  	  	  	  	  	  	  	 	BSP_MotorControl_WaitWhileActive(2);
-  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(0);//Decelerate until stopping
-  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(1);
-  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(2);
-		  	  	  	  	  	  		pos0 = BSP_MotorControl_GetPosition(0);
-		  	  	  	  	  	  		pos1 = BSP_MotorControl_GetPosition(1);
-		  	  	  	  	  	  		pos2 = BSP_MotorControl_GetPosition(2);
-  	  	  	  	  	  	  	 		HAL_Delay(30000);
-	  	  	  	  	  	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, SET);
-	  	  	  	  	  	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
-	  	  	  	  	  	  	  	 	BSP_MotorControl_Move(0, BACKWARD, 16900);//Va hacia +50º aprox
-	  	  	  	  	  	  	  	 	BSP_MotorControl_Move(1, BACKWARD, 16900);
-	  	  	  	  	  	  	  	 	BSP_MotorControl_Move(2, BACKWARD, 16900);
-	  	  	  	  	  	  	  	 	BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	  	  	  	  	  	  	 	BSP_MotorControl_WaitWhileActive(1);
-	  	  	  	  	  	  	  	 	BSP_MotorControl_WaitWhileActive(2);
-  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(0);//Decelerate until stopping
-  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(1);
-  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(2);
-		  	  	  	  	  	  		pos0 = BSP_MotorControl_GetPosition(0);
-		  	  	  	  	  	  		pos1 = BSP_MotorControl_GetPosition(1);
-		  	  	  	  	  	  		pos2 = BSP_MotorControl_GetPosition(2);
-  	  	  	  	  	  	  	 		HAL_Delay(30000);
-	  	  	  	  	  	  	  	 	counter++;
-	  	  	  	  	  	  	  	 	if (counter >= 60){
-	  	  	  	  	  	  	  	 		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
-	  	  	  	  	  	  	  	 		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
-		  	  	  	  	  	  	  	 	BSP_MotorControl_Move(0, FORWARD, 8450);//Va hacia 0º aprox
-		  	  	  	  	  	  	  	 	BSP_MotorControl_Move(1, FORWARD, 8450);
-		  	  	  	  	  	  	  	 	BSP_MotorControl_Move(2, FORWARD, 8450);
-	  	  	  	  	  	  	  	 		BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	  	  	  	  	  	  	 		BSP_MotorControl_WaitWhileActive(1);
-	  	  	  	  	  	  	  	 		BSP_MotorControl_WaitWhileActive(2);
-	  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(0);//Decelerate until stopping
-	  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(1);
-	  	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(2);
-	  	  	  	  	  	  	  	 		counter = 0;
-	  	  	  	  	  	  	  	 		HAL_Delay(30000);
-	  	  	  	  	  	  	  	 		state = 1;
-	  	  	  	  	  	  	  	 	}
-	  	  	  	  	  	  	  	  }
-	  	  	  	  	  	  	  else if (state == 3){ //Security
-	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(0);//Decelerate until stopping
-	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(1);
-	  	  	  	  	  	  	 		BSP_MotorControl_HardStop(2);
-	  	  	  	  	  	  		//Wait to manual check the model, mandatory reset
-	  	  	  	  	  	  		//Place all the trackers horizontally
-	  	  	  	  	  	  	  }
-	  	  	  	  	  	  	  else if (state == 4){ //Prueba
-	  	  	  	  	  	  		  if(first_movement == 0){
-	  	  	  	  	  		  	  	  BSP_MotorControl_HardStop(0);
-	  	  	  	  	  		  	  	  BSP_MotorControl_HardStop(1);
-	  	  	  	  	  		  	  	  BSP_MotorControl_HardStop(2);
-		  	  	  	  	  	  		  pos0 = BSP_MotorControl_GetPosition(0);
-		  	  	  	  	  	  		  pos1 = BSP_MotorControl_GetPosition(1);
-		  	  	  	  	  	  		  pos2 = BSP_MotorControl_GetPosition(2);
-  	  	  	  	  	  	  	 		  BSP_MotorControl_SetHome(0,pos0);//Set the step 0 in this position
-  	  	  	  	  	  	  	 		  BSP_MotorControl_SetHome(1,pos1);
-  	  	  	  	  	  	  	 		  BSP_MotorControl_SetHome(2,pos2);
-		  	  	  	  	  	  		  A0 = pos0 / 169;
-		  	  	  	  	  	  		  A1 = pos1 / 169;
-		  	  	  	  	  	  		  A2 = pos2 / 169;
-	  	  	  	  	  		  	  	  first_movement = 1;
-	  	  	  	  	  		  	  	  HAL_Delay(30000);
-	  	  	  	  	  		  	  }
-	  	  	  	  	  	  		  if(ang < 21){
-	  	  	  	  	  	  			  BSP_MotorControl_GoTo(0, -169*5*ang);//Avanza 5 grados
-	  	  	  	  	  		  	  	  BSP_MotorControl_GoTo(1, -169*5*ang);
-	  	  	  	  	  		  	  	  BSP_MotorControl_GoTo(2, -169*5*ang);
-	  	  	  	  	  		  	  	  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	  	  	  	  		  	  	  BSP_MotorControl_WaitWhileActive(1);
-	  	  	  	  	  		  	  	  BSP_MotorControl_WaitWhileActive(2);
-		  	  	  	  	  	  		  pos0 = BSP_MotorControl_GetPosition(0);
-		  	  	  	  	  	  		  pos1 = BSP_MotorControl_GetPosition(1);
-		  	  	  	  	  	  		  pos2 = BSP_MotorControl_GetPosition(2);
-		  	  	  	  	  	  		  A0 = pos0 / 169;
-		  	  	  	  	  	  		  A1 = pos1 / 169;
-		  	  	  	  	  	  		  A2 = pos2 / 169;
-	  	  	  	  	  		  	  	  ang++;
-	  	  	  	  	  		  	  	  HAL_Delay(30000);
-	  	  	  	  	  	  		  }
-	  	  	  	  	  	  		  if(ang > 20){
-	  	  	  	  	  	  			  aux++;
-	  	  	  	  	  	  			  BSP_MotorControl_GoTo(0, -169*5*(ang-aux));//Va hacia 50º
-	  	  	  	  	  		  	  	  BSP_MotorControl_GoTo(1, -169*5*(ang-aux));
-	  	  	  	  	  		  	  	  BSP_MotorControl_GoTo(2, -169*5*(ang-aux));
-	  	  	  	  	  		  	  	  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-	  	  	  	  	  		  	  	  BSP_MotorControl_WaitWhileActive(1);
-	  	  	  	  	  		  	  	  BSP_MotorControl_WaitWhileActive(2);
-		  	  	  	  	  	  		  pos0 = BSP_MotorControl_GetPosition(0);
-		  	  	  	  	  	  		  pos1 = BSP_MotorControl_GetPosition(1);
-		  	  	  	  	  	  		  pos2 = BSP_MotorControl_GetPosition(2);
-		  	  	  	  	  	  		  A0 = pos0 / 169;
-		  	  	  	  	  	  		  A1 = pos1 / 169;
-		  	  	  	  	  	  		  A2 = pos2 / 169;
-		  	  	  	  	  	  		  aux++;
-	  	  	  	  	  		  	  	  ang++;
-	  	  	  	  	  		  	  	  HAL_Delay(30000);
-	  	  	  	  	  	  		  }
-	  	  	  	  	  	  		  if(ang > 40){
-	  	  	  	  	  	  			  ang = 1;
-	  	  	  	  	  	  			  aux = 1;
-	  	  	  	  	  	  			  HAL_Delay(30000);
-	  	  	  	  	  	  		  }
-
-	  	  	  	  	  		  }
-	  	  	      /* USER CODE BEGIN 3 */
-
-
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, SET);
+		  BSP_MotorControl_Move(0, BACKWARD, step*sweep);//Va hacia +50º aprox
+		  BSP_MotorControl_Move(1, BACKWARD, step*sweep);
+		  BSP_MotorControl_Move(2, BACKWARD, step*sweep);
+		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+		  BSP_MotorControl_WaitWhileActive(1);
+		  BSP_MotorControl_WaitWhileActive(2);
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
+		  HAL_Delay(minute*sweep_frec);
+		  counter++;
+		  if (counter >= 12){
+			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
+			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
+			  BSP_MotorControl_Move(0, FORWARD, step*half_sweep);//Va hacia 0º aprox
+			  BSP_MotorControl_Move(1, FORWARD, step*half_sweep);
+			  BSP_MotorControl_Move(2, FORWARD, step*half_sweep);
+			  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+			  BSP_MotorControl_WaitWhileActive(1);
+			  BSP_MotorControl_WaitWhileActive(2);
+			  BSP_MotorControl_HardStop(0);//Decelerate until stopping
+			  BSP_MotorControl_HardStop(1);
+			  BSP_MotorControl_HardStop(2);
+			  counter = 0;
+			  HAL_Delay(minute/2);
+			  state = 1;
+		  }
+	  }
+	  else if (state == 3){ //Security
+		  BSP_MotorControl_HardStop(0);//Decelerate until stopping
+		  BSP_MotorControl_HardStop(1);
+		  BSP_MotorControl_HardStop(2);
+		  //Wait to manual check the model, mandatory reset
+		  //Place all the trackers horizontally
+	  }
+	  else if (state == 4){ //Prueba
+		  if(first_movement == 0){
+			  BSP_MotorControl_HardStop(0);
+			  BSP_MotorControl_HardStop(1);
+			  BSP_MotorControl_HardStop(2);
+			  pos0 = BSP_MotorControl_GetPosition(0);
+			  pos1 = BSP_MotorControl_GetPosition(1);
+			  pos2 = BSP_MotorControl_GetPosition(2);
+			  BSP_MotorControl_SetHome(0,pos0);//Set the step 0 in this position
+			  BSP_MotorControl_SetHome(1,pos1);
+			  BSP_MotorControl_SetHome(2,pos2);
+			  A0 = pos0 / 169;
+			  A1 = pos1 / 169;
+			  A2 = pos2 / 169;
+			  first_movement = 1;
+			  HAL_Delay(minute/2);
+		  }
+		  if(ang < 25){
+			  BSP_MotorControl_GoTo(0, 169*5*ang);//Avanza 5 grados
+			  BSP_MotorControl_GoTo(1, 169*5*ang);
+			  BSP_MotorControl_GoTo(2, 169*5*ang);
+			  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+			  BSP_MotorControl_WaitWhileActive(1);
+			  BSP_MotorControl_WaitWhileActive(2);
+			  pos0 = BSP_MotorControl_GetPosition(0);
+			  pos1 = BSP_MotorControl_GetPosition(1);
+			  pos2 = BSP_MotorControl_GetPosition(2);
+			  A0 = pos0 / 169;
+			  A1 = pos1 / 169;
+			  A2 = pos2 / 169;
+			  ang++;
+			  HAL_Delay(minute/2);
+		  }
+		  if(ang > 24){
+			  aux++;
+			  BSP_MotorControl_GoTo(0, 169*5*(ang-aux));//Va hacia 50º
+			  BSP_MotorControl_GoTo(1, 169*5*(ang-aux));
+			  BSP_MotorControl_GoTo(2, 169*5*(ang-aux));
+			  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
+			  BSP_MotorControl_WaitWhileActive(1);
+			  BSP_MotorControl_WaitWhileActive(2);
+			  pos0 = BSP_MotorControl_GetPosition(0);
+			  pos1 = BSP_MotorControl_GetPosition(1);
+			  pos2 = BSP_MotorControl_GetPosition(2);
+			  A0 = pos0 / 169;
+			  A1 = pos1 / 169;
+			  A2 = pos2 / 169;
+			  aux++;
+			  ang++;
+			  HAL_Delay(minute/2);
+		  }
+		  if(ang > 48){
+			  ang = 1;
+			  aux = 1;
+			  HAL_Delay(minute/2);
+		  }
+	  }
+	  /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
