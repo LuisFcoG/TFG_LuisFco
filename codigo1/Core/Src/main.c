@@ -24,8 +24,7 @@
 #include "stdio.h"
 #include <stdlib.h>
 #include <string.h>
-#include "angulo.h"
-#include "RTC.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,33 +57,39 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_RTC_Init(void);
 static void MX_ADC1_Init(void);
-/* USER CODE BEGIN PFP */
-volatile int first_movement = 0;
-volatile int pos0 = 0;
-volatile int pos1 = 0;
-volatile int pos2 = 0;
-volatile int state = 0;
-volatile int counter = 0;
-volatile int FCS = 0;
-volatile int FCC = 0;
-volatile int ang = 1;
-volatile int aux = 1;
-volatile float A0 = 0;
-volatile float A1 = 0;
-volatile float A2 = 0;
-volatile int step = 169;
-volatile int sweep = 99;//100 grados es barrido nominal
-volatile int half_sweep = 50;
-volatile int init_pos = 10;
-uint32_t minute = 60000;
-uint32_t sweep_frec = 0;
 
-uint32_t Vb1;
-uint32_t Vc0;
-uint32_t VpromS;
-uint32_t VpromC;
-volatile int Vcount = 0;
-uint32_t ADC_VAL[2], ADC_BUFF[2];
+/* USER CODE BEGIN PFP */
+
+//General operation variables of the sweep program
+
+volatile int first_movement = 0;	//Flag for calibration adjustment
+volatile int pos0 = 0; 				//Absolute position of motor 0 in micro-steps
+volatile int pos1 = 0;				//Absolute position of motor 1 in micro-steps
+volatile int pos2 = 0; 				//Absolute position of motor 2 in micro-steps
+volatile int state = 0; 			//State machine reference
+volatile int counter = 0; 			//Sweep counter for recalibration
+volatile int FCS = 0; 				//Security limit switch in NC configuration
+volatile int FCC = 0; 				//Calibration limit switch in NC configuration
+volatile int ang = 1; 				//Precision calibration support variable
+volatile int aux = 1; 				//Precision calibration support variable
+volatile float A0 = 0; 				//Motor 0 angle in degrees
+volatile float A1 = 0; 				//Motor 1 angle in degrees
+volatile float A2 = 0; 				//Motor 2 angle in degrees
+volatile int step = 169; 			//Degree equivalent in micro-steps
+volatile int sweep = 99; 			//Sweep equivalent in degrees, 100 is normal sweep
+volatile int half_sweep = 50; 		//Half sweep equivalent in degrees
+volatile int init_pos = 10;			//Initial position in degrees
+uint32_t minute = 60000; 			//Minute equivalent in milliseconds
+uint32_t sweep_frec = 0; 			//Delay between sweeps in minutes
+
+//ADC conversion variables
+
+uint32_t Vb1; 						//Tension in B1 pin
+uint32_t Vc0;						//Tension in C0 pin
+uint32_t VpromS;					//Average tension measured at the pin B1 (security limit switch)
+uint32_t VpromC;					//Average tension measured at the pin C0 (calibration limit switch)
+volatile int Vcount = 0;			//Measurement counter for averaging
+uint32_t ADC_VAL[2], ADC_BUFF[2];	//ADC conversion buffers
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -94,10 +99,10 @@ uint32_t ADC_VAL[2], ADC_BUFF[2];
 static volatile uint16_t gLastError;
 
 //Variables RTC
-volatile RTC_TimeTypeDef sTime; //Inicialización hora
-volatile RTC_DateTypeDef sDate; //Inicialización fecha
+volatile RTC_TimeTypeDef sTime; //Time initialization
+volatile RTC_DateTypeDef sDate; //Date initialization
 
-//Valores inicialización motores
+//Motor initialization values
 L6474_Init_t gL6474InitParams =
 {
     160,                               /// Acceleration rate in step/s2. Range: (0..+inf).
@@ -125,8 +130,8 @@ L6474_Init_t gL6474InitParams =
      L6474_ALARM_EN_WRONG_NPERF_CMD)    /// Alarm (ALARM_EN register).
 };
 
-//Funciones
-//Funciones control Shield
+//Functions
+//Shield control functions
 void ErrorHandler_Shield(uint16_t error);
 void MyFlagInterruptHandler(void)
 {
@@ -198,7 +203,7 @@ void MyFlagInterruptHandler(void)
 
 }
 
-//Callback de las interrupciones
+//GPIO interruption callback
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 	if (GPIO_Pin == BSP_MOTOR_CONTROL_BOARD_FLAG_PIN) //Shield interrupt handler
@@ -207,51 +212,108 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	}
 }
 
+//ADC conversion callback
 void HAL_ADC_ConvCpltCallback (ADC_HandleTypeDef * hadc){
 
 	if (hadc->Instance == ADC1){
 		ADC_VAL[0]=ADC_BUFF[0];
 		ADC_VAL[1]=ADC_BUFF[1];
-  	  	Vb1 = ADC_VAL[0];
-  	  	Vc0 = ADC_VAL[1];
+  	  	Vb1 = ADC_VAL[0]; //Tension value load
+  	  	Vc0 = ADC_VAL[1]; //Tension value load
 	}
 	if (Vcount < 50){
-			 VpromS = (VpromS*Vcount + Vb1)/(Vcount + 1);
-			 VpromC = (VpromC*Vcount + Vc0)/(Vcount + 1);
-			 Vcount++;
-		 }
-		 if (Vcount == 50){
-			 if (VpromS > 2500){
-				 FCS = 1;
-			 }
-			 if (VpromS < 1000){
-			 	 FCS = 0;
-			 	 if(state == 2 && first_movement == 1){
-			 		 state = 3;
-	  	  	  		 BSP_MotorControl_HardStop(0);
-	  	  	  		 BSP_MotorControl_HardStop(1);
-	  	  	  		 BSP_MotorControl_HardStop(2);
-	  	  	  	  	 pos0 = BSP_MotorControl_GetPosition(0);
-	  	  	  	  	 pos1 = BSP_MotorControl_GetPosition(1);
-	  	  	  	  	 pos2 = BSP_MotorControl_GetPosition(2);
-	  	  	  	  	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, SET);
-	  	  	  	  	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, SET);
-	  	  	  	  	 while(1){
+		VpromS = (VpromS*Vcount + Vb1)/(Vcount + 1); //Calculation of the average tension at B1 pin
+		VpromC = (VpromC*Vcount + Vc0)/(Vcount + 1); //Calculation of the average tension at C0 pin
+		Vcount++;
+	}
+	if (Vcount == 50){
+		if (VpromS > 2500){ //The values oscillate around 3 volts, with a certain margin allowed to avoid errors due to noise
+			FCS = 1; 		 //Security limit switch not activated
+		}
+		if (VpromS < 1000){
+			FCS = 0; //Security limit switch activated
+			if(state == 2 && first_movement == 1){ //Security limit switches are deactivated during calibration
+				state = 3; //Security state
+				HardStop();
+				GetPosition();
+				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, SET);
+				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, SET);
+				while(1){//Endless stop until manual check and reset
 
-	  	  	  	  	 }
-			 	 }
-			 }
-			 if (VpromC > 2500){
-				 FCC = 1;
-			 }
-			 if (VpromC < 1000){
-			 	 FCC = 0;
-			 	 if (state == 1){
-				 	 state = 2; //If calibrating precision during sweep use state 4
-			 	 }
-			 }
-			 Vcount = 0;
-		 }
+				}
+			}
+		}
+		if (VpromC > 2500){ //Calibration limit switch not activated
+			FCC = 1;
+		}
+		if (VpromC < 1000){ //Calibration limit switch activated
+			FCC = 0;
+			if (state == 1){ //During calibration state
+				state = 2; //Sweeping state
+			}
+		}
+		Vcount = 0; //Reset average counter
+	}
+}
+
+void HardStop(){ //Motors hardstop
+	BSP_MotorControl_HardStop(0);
+	BSP_MotorControl_HardStop(1);
+	BSP_MotorControl_HardStop(2);
+}
+
+void SoftStop(){ //Motors softstop, using deceleration values
+	BSP_MotorControl_SoftStop(0);
+	BSP_MotorControl_SoftStop(1);
+	BSP_MotorControl_SoftStop(2);
+}
+
+void GetPosition(){ //Load position of all 3 motors in micro-steps
+	pos0 = BSP_MotorControl_GetPosition(0);
+	pos1 = BSP_MotorControl_GetPosition(1);
+	pos2 = BSP_MotorControl_GetPosition(2);
+}
+
+void SetHome(){ //Set the step 0 in this position of all 3 motors
+	BSP_MotorControl_SetHome(0,pos0);
+	BSP_MotorControl_SetHome(1,pos1);
+	BSP_MotorControl_SetHome(2,pos2);
+}
+
+void SetMaxSpeed(float speed){ //Set the maximum speed of all 3 motors
+	BSP_MotorControl_SetMaxSpeed(0,speed);
+	BSP_MotorControl_SetMaxSpeed(1,speed);
+	BSP_MotorControl_SetMaxSpeed(2,speed);
+}
+
+void SetMinSpeed(float speed){ //Set the minimum speed of all 3 motors
+	BSP_MotorControl_SetMinSpeed(0,speed);
+	BSP_MotorControl_SetMinSpeed(1,speed);
+	BSP_MotorControl_SetMinSpeed(2,speed);
+}
+
+void MotorMove(motorDir direction, int steps){ //Moves all 3 motors to the specified number of steps in a certain direction
+	BSP_MotorControl_Move(0, direction, steps);
+	BSP_MotorControl_Move(1, direction, steps);
+	BSP_MotorControl_Move(2, direction, steps);
+}
+
+void MotorRun(motorDir direction){ //Moves indefinitely all 3 motors in a certain direction
+	BSP_MotorControl_Run(0, direction);
+	BSP_MotorControl_Run(1, direction);
+	BSP_MotorControl_Run(2, direction);
+}
+
+void MotorGoTo(int steps){ //Moves all 3 motors to a specific absolute position
+	BSP_MotorControl_GoTo(0, steps);
+	BSP_MotorControl_GoTo(1, steps);
+	BSP_MotorControl_GoTo(2, steps);
+}
+
+void WaitWhileActive(){ //Wait to the previous movements to finish
+	BSP_MotorControl_WaitWhileActive(0);
+	BSP_MotorControl_WaitWhileActive(1);
+	BSP_MotorControl_WaitWhileActive(2);
 }
 
 /* USER CODE END 0 */
@@ -291,21 +353,18 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
-  //Start timer
-  //HAL_TIM_Base_Start_IT(&htim5);
-
-  //Start DMA
+  //Start ADC and DMA
   HAL_ADC_Start_DMA(&hadc1, ADC_BUFF, 2);
 
-  //Inicialización driver
-  BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 3);         //Se establece número de motores a controlar
-  BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams); //Parámetros iniciales del motor
+  //Driver initialization
+  BSP_MotorControl_SetNbDevices(BSP_MOTOR_CONTROL_BOARD_ID_L6474, 3);         //Setting number of motors to be controlled
+  BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams); //Initial motor parameters
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);
   BSP_MotorControl_Init(BSP_MOTOR_CONTROL_BOARD_ID_L6474, &gL6474InitParams);
-  BSP_MotorControl_AttachFlagInterrupt(MyFlagInterruptHandler);               //Asociar controlador de interrupciones
-  BSP_MotorControl_AttachErrorHandler(ErrorHandler_Shield);                   //Asociar función control errores
+  BSP_MotorControl_AttachFlagInterrupt(MyFlagInterruptHandler);               //Interrupt handler association
+  BSP_MotorControl_AttachErrorHandler(ErrorHandler_Shield);                   //Error handle association
 
-  //Inicialización programa la primera vez que se carga el programa
+  //Program initialization the first time it is loaded
   state = 1; //Initial state, 1->Normal, 4->Accuracy calibration
   sweep_frec = 5; //Delay between sweeps in minutes
 
@@ -316,134 +375,88 @@ int main(void)
   while (1)
   {
 	  /* USER CODE END WHILE */
-	  if (state == 1){
+	  if (state == 1){ //Calibration state
 		  first_movement = 0;
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET); //Not sweeping information to datalogger
 		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
-		  pos0 = BSP_MotorControl_GetPosition(0);
-		  pos1 = BSP_MotorControl_GetPosition(1);
-		  pos2 = BSP_MotorControl_GetPosition(2);
-		  BSP_MotorControl_SetHome(0,pos0);//Set the step 0 in this position
-		  BSP_MotorControl_SetHome(1,pos1);
-		  BSP_MotorControl_SetHome(2,pos2);
-		  HAL_Delay(1000);
-		  BSP_MotorControl_SetMaxSpeed(0,566);//Set the speed limits
-		  BSP_MotorControl_SetMaxSpeed(1,566);
-		  BSP_MotorControl_SetMaxSpeed(2,566);
-		  BSP_MotorControl_SetMinSpeed(0,566);
-		  BSP_MotorControl_SetMinSpeed(1,566);
-		  BSP_MotorControl_SetMinSpeed(2,566);
-		  BSP_MotorControl_Run(0, BACKWARD);//Va hacia FCC
-		  BSP_MotorControl_Run(1, BACKWARD);
-		  BSP_MotorControl_Run(2, BACKWARD);
+		  GetPosition(); //Position update
+		  SetHome(); //Home update
+		  HAL_Delay(1000); //Allows drivers to fully load the home position in time
+		  SetMaxSpeed(566);
+		  SetMinSpeed(566);
+		  MotorRun(BACKWARD); //Moves into calibration limit switch
 	  }
-	  else if (state == 2){
+	  else if (state == 2){ //Sweeping state
 		  if(first_movement == 0){
-			  BSP_MotorControl_Move(0, FORWARD, step*init_pos);//Va al punto inicial de barrido, -50º
-			  BSP_MotorControl_Move(1, FORWARD, step*init_pos);
-			  BSP_MotorControl_Move(2, FORWARD, step*init_pos);
-			  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-			  BSP_MotorControl_WaitWhileActive(1);
-			  BSP_MotorControl_WaitWhileActive(2);
+			  MotorMove(FORWARD, step*init_pos); //Adjust initial position to -50º
+			  WaitWhileActive();
 			  first_movement = 1;
 		  }
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, SET);
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, SET); //E-W sweeping information to datalogger
 		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
-		  BSP_MotorControl_Move(0, FORWARD, step*sweep);//Va hacia -50º aprox
-		  BSP_MotorControl_Move(1, FORWARD, step*sweep);
-		  BSP_MotorControl_Move(2, FORWARD, step*sweep);
-		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-		  BSP_MotorControl_WaitWhileActive(1);
-		  BSP_MotorControl_WaitWhileActive(2);
+		  MotorMove(FORWARD, step*sweep);
+		  WaitWhileActive();
 
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET); //W-E sweeping information to datalogger
 		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, SET);
-		  BSP_MotorControl_Move(0, BACKWARD, step*sweep);//Va hacia +50º aprox
-		  BSP_MotorControl_Move(1, BACKWARD, step*sweep);
-		  BSP_MotorControl_Move(2, BACKWARD, step*sweep);
-		  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-		  BSP_MotorControl_WaitWhileActive(1);
-		  BSP_MotorControl_WaitWhileActive(2);
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
+		  MotorMove(BACKWARD, step*sweep);
+		  WaitWhileActive();
+
+		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET); //Not sweeping information to datalogger
 		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
 		  HAL_Delay(minute*sweep_frec);
 		  counter++;
-		  if (counter >= 12){
-			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET);
+
+		  if (counter >= 60/sweep_frec){ //Recalibration one an hour
+			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, RESET); //Not sweeping information to datalogger
 			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, RESET);
-			  BSP_MotorControl_Move(0, FORWARD, step*half_sweep);//Va hacia 0º aprox
-			  BSP_MotorControl_Move(1, FORWARD, step*half_sweep);
-			  BSP_MotorControl_Move(2, FORWARD, step*half_sweep);
-			  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-			  BSP_MotorControl_WaitWhileActive(1);
-			  BSP_MotorControl_WaitWhileActive(2);
-			  BSP_MotorControl_HardStop(0);//Decelerate until stopping
-			  BSP_MotorControl_HardStop(1);
-			  BSP_MotorControl_HardStop(2);
+			  MotorMove(FORWARD, step*half_sweep);
+			  WaitWhileActive();
+			  HardStop();
 			  counter = 0;
 			  HAL_Delay(minute/2);
 			  state = 1;
 		  }
 	  }
 	  else if (state == 3){ //Security
-		  BSP_MotorControl_HardStop(0);//Decelerate until stopping
-		  BSP_MotorControl_HardStop(1);
-		  BSP_MotorControl_HardStop(2);
+		  HardStop();
 		  //Wait to manual check the model, mandatory reset
 		  //Place all the trackers horizontally
 	  }
-	  else if (state == 4){ //Prueba
+	  else if (state == 4){ //Motor precision calibration during sweep
 		  if(first_movement == 0){
-			  BSP_MotorControl_HardStop(0);
-			  BSP_MotorControl_HardStop(1);
-			  BSP_MotorControl_HardStop(2);
-			  pos0 = BSP_MotorControl_GetPosition(0);
-			  pos1 = BSP_MotorControl_GetPosition(1);
-			  pos2 = BSP_MotorControl_GetPosition(2);
-			  BSP_MotorControl_SetHome(0,pos0);//Set the step 0 in this position
-			  BSP_MotorControl_SetHome(1,pos1);
-			  BSP_MotorControl_SetHome(2,pos2);
-			  A0 = pos0 / 169;
-			  A1 = pos1 / 169;
-			  A2 = pos2 / 169;
+			  HardStop(); //Current position is stopped while activating the calibration limit switch
+			  GetPosition(); //Position update
+			  SetHome(); //Home update
+			  A0 = pos0 / 169; //Motor 0 position in degrees update
+			  A1 = pos1 / 169; //Motor 1 position in degrees update
+			  A2 = pos2 / 169; //Motor 2 position in degrees update
 			  first_movement = 1;
-			  HAL_Delay(minute/2);
+			  HAL_Delay(minute/2); //Half a minute to record all the measurements
 		  }
-		  if(ang < 25){
-			  BSP_MotorControl_GoTo(0, 169*5*ang);//Avanza 5 grados
-			  BSP_MotorControl_GoTo(1, 169*5*ang);
-			  BSP_MotorControl_GoTo(2, 169*5*ang);
-			  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-			  BSP_MotorControl_WaitWhileActive(1);
-			  BSP_MotorControl_WaitWhileActive(2);
-			  pos0 = BSP_MotorControl_GetPosition(0);
-			  pos1 = BSP_MotorControl_GetPosition(1);
-			  pos2 = BSP_MotorControl_GetPosition(2);
-			  A0 = pos0 / 169;
-			  A1 = pos1 / 169;
-			  A2 = pos2 / 169;
+		  if(ang < 25){ //If it moves in 5-degree increments, it will require 24 movements to complete the entire sweep from one limit switch to the other
+			  MotorGoTo(step*5*ang); //Moves 5 degrees
+			  WaitWhileActive();
+			  GetPosition(); //Position update
+			  A0 = pos0 / 169; //Motor 0 position in degrees update
+			  A1 = pos1 / 169; //Motor 1 position in degrees update
+			  A2 = pos2 / 169; //Motor 2 position in degrees update
 			  ang++;
 			  HAL_Delay(minute/2);
 		  }
-		  if(ang > 24){
+		  if(ang > 24){ //Repeat the measurements in reverse
 			  aux++;
-			  BSP_MotorControl_GoTo(0, 169*5*(ang-aux));//Va hacia 50º
-			  BSP_MotorControl_GoTo(1, 169*5*(ang-aux));
-			  BSP_MotorControl_GoTo(2, 169*5*(ang-aux));
-			  BSP_MotorControl_WaitWhileActive(0);//Wait to the previous movement to finish
-			  BSP_MotorControl_WaitWhileActive(1);
-			  BSP_MotorControl_WaitWhileActive(2);
-			  pos0 = BSP_MotorControl_GetPosition(0);
-			  pos1 = BSP_MotorControl_GetPosition(1);
-			  pos2 = BSP_MotorControl_GetPosition(2);
-			  A0 = pos0 / 169;
-			  A1 = pos1 / 169;
-			  A2 = pos2 / 169;
+			  MotorGoTo(step*5*(ang-aux)); //Moves back 5 degrees
+			  WaitWhileActive();
+			  GetPosition(); //Position update
+			  A0 = pos0 / 169; //Motor 0 position in degrees update
+			  A1 = pos1 / 169; //Motor 1 position in degrees update
+			  A2 = pos2 / 169; //Motor 2 position in degrees update
 			  aux++;
 			  ang++;
 			  HAL_Delay(minute/2);
 		  }
-		  if(ang > 48){
+		  if(ang > 48){ //Restart
 			  ang = 1;
 			  aux = 1;
 			  HAL_Delay(minute/2);
