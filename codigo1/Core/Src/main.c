@@ -247,7 +247,7 @@ void HAL_ADC_ConvCpltCallback (ADC_HandleTypeDef * hadc){
 			 if (VpromC < 1000){
 			 	 FCC = 0;
 			 	 if (state == 1){
-				 	 state = 2;
+				 	 state = 2; //If calibrating precision during sweep use state 4
 			 	 }
 			 }
 			 Vcount = 0;
