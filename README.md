@@ -1,6 +1,4 @@
-# TFG_LuisFco
-
-## Tracker Model Data Processing
+# Tracker Model Data Processing
 This repository contains programs for processing data campaigns from a model of a three-row solar tracker.
 
 ## Main Program Files (TMDP)
